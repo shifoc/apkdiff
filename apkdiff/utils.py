@@ -1,16 +1,9 @@
-import shutil
-import pathlib
-import os.path
 import re
-import uuid
-import pickle
 from termcolor import cprint
 from androguard.misc import AnalyzeAPK
 from androguard.core.apk import APK
-from androguard.core.dex import DEX
 from androguard.core.analysis.analysis import Analysis
-from androguard.core.analysis.analysis import ClassAnalysis
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Any
 
 _SCRAMBLED_NAME_RE: re.Pattern = re.compile(r"(?:\w+(?:/\w+)+)|(?:^\w{,2}$)")
 _SCRAMBLED_WHITELIST = [
@@ -31,37 +24,7 @@ def strip_class_name(class_name: str) -> str:
     return class_name
 
 
-def get_apk_cache(apk_path: str, temp_path: str) -> Tuple[Optional[APK], Optional[Analysis]]:
-    temp_path = pathlib.Path(temp_path) / os.path.basename(apk_path)
-    if temp_path.exists():
-        try:
-            apk_cache_path = temp_path / 'apk'
-            analysis_path = temp_path / 'analysis'
-            with apk_cache_path.open('rb') as f:
-                apk = pickle.load(f)
-            with analysis_path.open('rb') as f:
-                analysis = pickle.load(f)
-            return apk, analysis
-        except:
-            pass
-    return None, None
-
-
-def save_apk_cache(apk_path: str, temp_path: str, apk: APK, analysis: Analysis) -> None:
-    if not os.path.exists(temp_path):
-        os.makedirs(temp_path)
-    temp_path = pathlib.Path(temp_path) / os.path.basename(apk_path)
-    if not temp_path.exists():
-        temp_path.mkdir()
-    apk_cache_path = temp_path / 'apk'
-    analysis_path = temp_path / 'analysis'
-    with apk_cache_path.open('wb') as f:
-        pickle.dump(apk, f)
-    with analysis_path.open('wb') as f:
-        pickle.dump(analysis, f)
-
-
-def extract_apk(apk_path: str, temp_path: str) -> Tuple[Optional[APK], Optional[Analysis]]:
+def extract_apk(apk_path: str) -> Tuple[Optional[APK], Optional[Analysis]]:
     cprint("[+] Running androguard to decompile the apk.", "green")
     try:
         apk, _, dx = AnalyzeAPK(apk_path)
@@ -69,12 +32,11 @@ def extract_apk(apk_path: str, temp_path: str) -> Tuple[Optional[APK], Optional[
         print(e)
         cprint(f"Error processing {apk_path}.", "red")
         return None, None
-    # save_apk_cache(apk_path, temp_path, apk, dx)
     cprint("[+] Androguard processed the apk.", "green")
     return apk, dx
 
 
-def get_stripped_ast(class_analysis: ClassAnalysis) -> str:
+def strip_ast(ast: dict) -> dict:
     def _strip(value: Any) -> Any:
         if isinstance(value, str):
             return strip_class_name(value)
@@ -88,12 +50,10 @@ def get_stripped_ast(class_analysis: ClassAnalysis) -> str:
             return value
         raise ValueError(f"Wrong type! {type(value)}")
 
-    ast = class_analysis.get_class().get_ast()
-
     return _strip(ast)
 
 
-def get_strings(class_analysis: ClassAnalysis) -> List[str]:
+def get_strings(ast: dict) -> List[str]:
     def _get_strings(value: Any) -> List[str]:
         if isinstance(value, list):
             if len(value) == 3 and value[0] == 'Literal' and value[2] == ('java/lang/String', 0):
@@ -103,4 +63,4 @@ def get_strings(class_analysis: ClassAnalysis) -> List[str]:
             return [item for key in value.keys() for item in _get_strings(value[key])]
         return []
 
-    return _get_strings(class_analysis.get_class().get_ast())
+    return _get_strings(ast)

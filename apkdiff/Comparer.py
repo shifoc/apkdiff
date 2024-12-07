@@ -1,57 +1,49 @@
-from typing import Dict
+from tqdm import tqdm
+from concurrent.futures.thread import ThreadPoolExecutor
+from typing import Dict, Optional, List
+
+from apkdiff.MultiClassComparer import MultiClassComparer
 from apkdiff.common import APKAnalysis
-from androguard.core.analysis.analysis import ClassAnalysis, FieldAnalysis
+from androguard.core.analysis.analysis import ClassAnalysis
+from apkdiff.utils import strip_class_name, strip_ast, get_strings
+from apkdiff.PreparedClass import PreparedClass
 
 
 class Comparer:
-    classes: Dict[str, str]
+    classes: Dict[str, Optional[str]]
 
-    def __init__(self, analysis1: APKAnalysis, analysis2: APKAnalysis):
+    def __init__(self, analysis1: APKAnalysis, analysis2: APKAnalysis, classes: List[str]):
         self.analysis1 = analysis1
         self.analysis2 = analysis2
-        self.classes = dict()
+        self.classes = {cls: None for cls in classes}
+        self.prepared_classes: List[PreparedClass] = []
 
     @staticmethod
-    def is_same_field(field1: FieldAnalysis, field2: FieldAnalysis) -> int:
-        confidence = 0
-        confidence += 25 if field1.field.access_flags_string == field2.field.access_flags_string else 0
-        confidence += 5 if field1.field.init_value == field2.field.init_value else 0
-        confidence += 50 if field1.field.class_name == field2.field.class_name else 0
-        confidence += 25 if field1.field.field_idx == field2.field.field_idx else 0
-        confidence += 50 if field1.field.get_raw() == field2.field.get_raw() else 0
+    def thread_prepare_class(class_name: str, analysis: ClassAnalysis) -> PreparedClass:
+        ast = analysis.get_class().get_ast()
+        return PreparedClass(class_name, analysis, ast, strip_ast(ast), get_strings(ast))
 
-        return confidence
+    def prepare_classes(self) -> None:
+        with ThreadPoolExecutor(max_workers=32) as executor:
+            futures = []
+            for class_name in self.analysis2.analysis.classes:
+                if strip_class_name(class_name) == '' or self.analysis2.analysis.classes[class_name].external:
+                    continue
+                futures.append(
+                    executor.submit(self.thread_prepare_class, class_name, self.analysis2.analysis.classes[class_name]))
 
-    @staticmethod
-    def same_fields_confidence(class1: ClassAnalysis, class2: ClassAnalysis) -> int:
-        """Terrible logic I need to kill myself"""
-        return 100
-        if len(class1.get_fields()) == 0 or len(class2.get_fields()) == 0:
-            return 0 if len(class1.get_fields()) != len(class2.get_fields()) else 100
-        ratings = []
-        for field1 in class1.get_fields():
-            field_rating = [0]
-            for field2 in class2.get_fields():
-                field_rating.append(Comparer.is_same_field(field1, field2))
-            ratings.append(max(field_rating))
-        return (sum(ratings) // len(ratings)) // abs(len(class1.get_fields()) - len(class2.get_fields()))
+            for future, _ in zip(futures, tqdm(range(len(futures)))):
+                self.prepared_classes.append(future.result())
 
-    @staticmethod
-    def same_methods_confidence(class1: ClassAnalysis, class2: ClassAnalysis) -> int:
-        pass
-
-    @staticmethod
-    def same_class_confidence(class1: ClassAnalysis, class2: ClassAnalysis) -> int:
-        result_confidence = Comparer.same_fields_confidence(class1, class2)
-
-        return result_confidence
+            return class_name
 
     def compare_classes(self):
-        for class_to_match in self.analysis1.analysis.get_classes():
-            rating = []
-            for other in self.analysis2.analysis.get_classes():
-                rating.append(self.same_class_confidence(class_to_match, other))
-            print(rating)
+        self.prepare_classes()
+        for class_to_match in self.classes:
+            class_name = MultiClassComparer(self.analysis1.analysis.classes[class_to_match],
+                                            self.prepared_classes).get_similar_class()
+            self.classes[class_to_match] = class_name
 
     def compare(self):
         self.compare_classes()
+        print(self.classes)

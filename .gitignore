@@ -1,8 +1,15 @@
 /.pytest_cache/
 /venv/
+/.venv/
 **/__pycache__/
 **.apk
 /.idea
 **.cache
 **.js
 **.idsig
+**.db
+**.db-shm
+**.db-wal
+**.docx
+**.jadx
+**.pyc
