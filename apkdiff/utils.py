@@ -1,5 +1,4 @@
 import re
-from termcolor import cprint
 from androguard.misc import AnalyzeAPK
 from androguard.core.apk import APK
 from androguard.core.analysis.analysis import Analysis
@@ -25,14 +24,14 @@ def strip_class_name(class_name: str) -> str:
 
 
 def extract_apk(apk_path: str) -> Tuple[Optional[APK], Optional[Analysis]]:
-    cprint("[+] Running androguard to decompile the apk.", "green")
+    print("[+] Running androguard to decompile the apk.")
     try:
         apk, _, dx = AnalyzeAPK(apk_path)
     except Exception as e:
         print(e)
-        cprint(f"Error processing {apk_path}.", "red")
+        print(f"Error processing {apk_path}.")
         return None, None
-    cprint("[+] Androguard processed the apk.", "green")
+    print("[+] Androguard processed the apk.")
     return apk, dx
 
 
